@@ -1,0 +1,14 @@
+{
+  "name": "马原刷题",
+  "short_name": "马原刷题",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f7f9fc",
+  "theme_color": "#102a43",
+  "description": "按章节练习马克思主义基本原理，进度保存在本机。",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

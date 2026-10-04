@@ -11,12 +11,14 @@
     mastered: saved.mastered,
     selected: saved.selected,
     mode: saved.mode,
+    sessionSize: saved.sessionSize || 0,
     session: saved.session,
     filters: { chapters: defaultSelection.slice(), types: ['single', 'multi', 'judge'], mastery: 'all' },
     queue: [], index: 0, results: []
   };
   const chapterName = id => BANK.chapters.find(c => c.id === id)?.name || id;
   const typeName = t => ({ single: '单选题', multi: '多选题', judge: '判断题' })[t];
+  const difficultyName = d => ({ easy: '基础', medium: '进阶', hard: '提高' })[d] || '基础';
   const byId = id => BANK.questions.find(q => q.id === id);
   const shuffle = list => {
     const result = list.slice();
@@ -35,12 +37,12 @@
       if (data.version === 2 && Array.isArray(data.events)) return normalize(data);
       const answers = data.answers && typeof data.answers === 'object' ? data.answers : {};
       const wrong = Array.isArray(data.wrong) ? data.wrong.filter(id => byId(id)) : [];
-      return normalize({ version: 2, answers, wrong, events: [], mastered: [], selected: data.selected, mode: data.mode, session: migrateSession(data.session), reports: data.reports || {} });
+      return normalize({ version: 2, answers, wrong, events: [], mastered: [], selected: data.selected, mode: data.mode, sessionSize: data.sessionSize, session: migrateSession(data.session), reports: data.reports || {} });
     } catch {
       return freshState(true);
     }
   }
-  function freshState(recovered = false) { return { version: 2, answers: {}, events: [], wrong: [], mastered: [], selected: defaultSelection.slice(), mode: 'random', session: null, reports: {}, recovered }; }
+  function freshState(recovered = false) { return { version: 2, answers: {}, events: [], wrong: [], mastered: [], selected: defaultSelection.slice(), mode: 'random', sessionSize: 0, session: null, reports: {}, recovered }; }
   function migrateSession(session) {
     if (!session || !Array.isArray(session.ids)) return null;
     return { ids: session.ids, index: session.index || 0, chosen: [], submitted: false, results: session.results || [] };
@@ -48,10 +50,11 @@
   function normalize(data) {
     const answers = {};
     for (const [id, value] of Object.entries(data.answers || {})) if (byId(id)) answers[id] = typeof value === 'boolean' ? { first: value, latest: value, attempts: 1 } : value;
-    return { version: 2, answers, events: Array.isArray(data.events) ? data.events : [], wrong: (data.wrong || []).filter(id => byId(id)), mastered: (data.mastered || []).filter(id => byId(id)), selected: Array.isArray(data.selected) ? data.selected.filter(id => BANK.chapters.some(c => c.id === id)) : defaultSelection.slice(), mode: data.mode === 'order' ? 'order' : 'random', session: data.session || null, reports: data.reports || {}, recovered: false };
+    return { version: 2, answers, events: Array.isArray(data.events) ? data.events : [], wrong: (data.wrong || []).filter(id => byId(id)), mastered: (data.mastered || []).filter(id => byId(id)), selected: Array.isArray(data.selected) ? data.selected.filter(id => BANK.chapters.some(c => c.id === id)) : defaultSelection.slice(), mode: data.mode === 'order' ? 'order' : 'random', sessionSize: [0, 10, 20, 50].includes(Number(data.sessionSize)) ? Number(data.sessionSize) : 0, session: data.session || null, reports: data.reports || {}, recovered: false };
   }
   function persist() {
-    const data = { ...saved, version: 2, answers: state.answers, events: state.events, wrong: state.wrong, mastered: state.mastered, selected: state.selected, mode: state.mode, session: state.queue.length ? saveSession() : null };
+    state.session = state.queue.length ? saveSession() : null;
+    const data = { ...saved, version: 2, answers: state.answers, events: state.events, wrong: state.wrong, mastered: state.mastered, selected: state.selected, mode: state.mode, sessionSize: state.sessionSize, session: state.session };
     try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); saved = data; }
     catch { alert('本机存储空间不足。请先导出进度，再清理浏览器空间。'); }
   }
@@ -69,6 +72,7 @@
     $('mastery').textContent = unique.length ? `${Math.round(masteredCount / unique.length * 100)}%` : '0%';
     $('wrongCount').textContent = state.wrong.length;
     $('feedbackCount').textContent = Object.keys(saved.reports || {}).length;
+    $('continuePractice').classList.toggle('hidden', !state.session?.ids?.length);
     $('chapterStats').innerHTML = BANK.chapters.map(c => {
       const questions = BANK.questions.filter(q => q.chapter === c.id);
       const answered = questions.filter(q => state.answers[q.id]);
@@ -82,8 +86,11 @@
   function renderSelect() {
     const counts = Object.fromEntries(BANK.chapters.map(c => [c.id, BANK.questions.filter(q => q.chapter === c.id).length]));
     renderChapters('chapterList', state.selected, counts);
-    $('selectedSummary').textContent = `已选 ${state.selected.length} 章 · ${BANK.questions.filter(q => state.selected.includes(q.chapter)).length} 题`;
+    const total = BANK.questions.filter(q => state.selected.includes(q.chapter)).length;
+    const planned = state.sessionSize && state.sessionSize < total ? ` · 本轮 ${state.sessionSize} 题` : ' · 本轮全部';
+    $('selectedSummary').textContent = `已选 ${state.selected.length} 章 · 共 ${total} 题${planned}`;
     document.querySelector(`input[name=mode][value="${state.mode}"]`).checked = true;
+    $('sessionSize').value = String(state.sessionSize);
   }
   function renderWrongFilters() {
     const chapters = BANK.chapters.filter(c => state.filters.chapters.includes(c.id));
@@ -101,12 +108,14 @@
   function start(ids, onlyWrong = false) {
     let qs = BANK.questions.filter(q => ids.includes(q.chapter) && (!onlyWrong || state.wrong.includes(q.id)));
     qs = state.mode === 'random' ? shuffle(qs) : qs.sort((a, b) => a.id.localeCompare(b.id));
+    if (state.sessionSize > 0) qs = qs.slice(0, state.sessionSize);
     if (!qs.length) { alert(onlyWrong ? '当前筛选下没有可复习的错题。' : '所选范围内没有题目。'); return; }
     state.queue = qs; state.index = 0; state.results = []; persist(); show('quizView'); renderQuestion();
   }
   function startQuestions(questions) {
     if (!questions.length) { alert('当前筛选下没有可复习的错题。'); return; }
     state.queue = state.mode === 'random' ? shuffle(questions) : questions.slice().sort((a, b) => a.id.localeCompare(b.id));
+    if (state.sessionSize > 0) state.queue = state.queue.slice(0, state.sessionSize);
     state.index = 0; state.results = []; persist(); show('quizView'); renderQuestion();
   }
   function selectedOptions() { return [...document.querySelectorAll('input[name=answer]:checked')].map(x => Number(x.value)).sort((a, b) => a - b); }
@@ -115,12 +124,13 @@
     $('quizMeta').textContent = `${chapterName(q.chapter)} · ${q.section} · PDF 第 ${q.page} 页`;
     $('quizProgress').textContent = `${state.index + 1} / ${state.queue.length}`;
     $('progressBar').style.width = `${(state.index / state.queue.length) * 100}%`;
-    $('typeBadge').textContent = typeName(q.type); $('stem').textContent = q.stem;
+    $('typeBadge').textContent = `${typeName(q.type)} · ${difficultyName(q.difficulty)}`; $('stem').textContent = q.stem;
     $('feedback').className = 'feedback hidden'; $('feedback').replaceChildren();
     $('submitAnswer').classList.remove('hidden'); $('nextQuestion').classList.add('hidden'); $('markMastered').classList.add('hidden');
     const inputType = q.type === 'multi' ? 'checkbox' : 'radio';
     $('options').innerHTML = q.options.map((o, i) => `<label class="option"><input type="${inputType}" name="answer" value="${i}"><span>${String.fromCharCode(65 + i)}. ${o}</span></label>`).join('');
-    $('options').querySelectorAll('.option').forEach(el => el.addEventListener('click', () => el.classList.toggle('selected', el.querySelector('input').checked)));
+    const syncOptionStyles = () => $('options').querySelectorAll('.option').forEach(el => el.classList.toggle('selected', el.querySelector('input').checked));
+    $('options').querySelectorAll('input[name=answer]').forEach(input => input.addEventListener('change', syncOptionStyles));
     if (restore?.chosen) restore.chosen.forEach(i => { const input = document.querySelector(`input[name=answer][value="${i}"]`); if (input) { input.checked = true; input.closest('.option').classList.add('selected'); } });
     if (restore?.submitted) showFeedback(q, restore.chosen || [] , restore.right === true, false);
   }
@@ -156,8 +166,17 @@
     state.queue = []; persist(); renderHome();
   }
   function exportProgress() {
-    const payload = { app: 'marx-practice', version: 2, bankVersion: BANK.version, answers: state.answers, events: state.events, wrong: state.wrong, mastered: state.mastered, selected: state.selected, mode: state.mode, reports: saved.reports || {} };
+    const payload = { app: 'marx-practice', version: 2, bankVersion: BANK.version, answers: state.answers, events: state.events, wrong: state.wrong, mastered: state.mastered, selected: state.selected, mode: state.mode, sessionSize: state.sessionSize, reports: saved.reports || {} };
     const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })); const a = document.createElement('a'); a.href = url; a.download = 'marx-practice-progress.json'; a.click(); URL.revokeObjectURL(url);
+  }
+  function exportReports() {
+    const reports = Object.entries(saved.reports || {}).map(([id, note]) => {
+      const q = byId(id);
+      return { id, chapter: q ? chapterName(q.chapter) : '', section: q?.section || '', page: q?.page || '', type: q ? typeName(q.type) : '', stem: q?.stem || '', note };
+    });
+    if (!reports.length) { alert('还没有本地反馈。'); return; }
+    const url = URL.createObjectURL(new Blob([JSON.stringify({ app: 'marx-practice-reports', bankVersion: BANK.version, reports }, null, 2)], { type: 'application/json' }));
+    const a = document.createElement('a'); a.href = url; a.download = 'marx-practice-reports.json'; a.click(); URL.revokeObjectURL(url);
   }
   function importProgress(file) {
     const reader = new FileReader(); reader.onload = () => {
@@ -166,7 +185,7 @@
         if (data.app !== 'marx-practice' || ![1, 2].includes(data.version)) throw new Error('文件格式不支持');
         state.answers = data.answers || {}; state.events = Array.isArray(data.events) ? data.events : [];
         state.wrong = (data.wrong || []).filter(id => byId(id)); state.mastered = (data.mastered || []).filter(id => byId(id));
-        state.selected = (data.selected || defaultSelection).filter(id => BANK.chapters.some(c => c.id === id)); state.mode = data.mode === 'order' ? 'order' : 'random'; saved.reports = data.reports || {}; state.queue = []; persist(); renderHome(); alert('进度已导入。');
+        state.selected = (data.selected || defaultSelection).filter(id => BANK.chapters.some(c => c.id === id)); state.mode = data.mode === 'order' ? 'order' : 'random'; state.sessionSize = [0, 10, 20, 50].includes(Number(data.sessionSize)) ? Number(data.sessionSize) : 0; saved.reports = data.reports || {}; state.queue = []; persist(); renderHome(); alert('进度已导入。');
       } catch (error) { alert(`无法导入：${error.message}`); }
     }; reader.readAsText(file);
   }
@@ -176,6 +195,7 @@
   $('clearAll').onclick = () => { state.selected = []; renderSelect(); persist(); };
   $('chapterList').addEventListener('change', () => { state.selected = [...$('chapterList').querySelectorAll('input:checked')].map(x => x.value); renderSelect(); persist(); });
   document.querySelectorAll('input[name=mode]').forEach(i => i.onchange = () => { state.mode = i.value; persist(); });
+  $('sessionSize').onchange = () => { state.sessionSize = Number($('sessionSize').value) || 0; renderSelect(); persist(); };
   $('wrongPractice').onclick = () => { state.filters.chapters = defaultSelection.slice(); renderWrongFilters(); show('wrongView'); };
   $('wrongChapters').addEventListener('click', e => { const id = e.target.dataset.chapter; if (!id) return; state.filters.chapters = id === 'all' ? defaultSelection.slice() : (state.filters.chapters.includes(id) ? state.filters.chapters.filter(x => x !== id) : [...state.filters.chapters, id]); renderWrongFilters(); });
   $('wrongTypes').addEventListener('click', e => { const t = e.target.dataset.type; if (!t) return; state.filters.types = state.filters.types.includes(t) ? state.filters.types.filter(x => x !== t) : [...state.filters.types, t]; renderWrongFilters(); });
@@ -184,13 +204,12 @@
   $('clearWrong').onclick = () => { if (confirm('清空錯题记录？答题历史仍会保留。')) { state.wrong = []; persist(); renderWrongFilters(); renderHome(); } };
   $('submitAnswer').onclick = submit; $('nextQuestion').onclick = next;
   $('markMastered').onclick = () => { const id = state.queue[state.index].id; state.mastered = state.mastered.includes(id) ? state.mastered.filter(x => x !== id) : [...state.mastered, id]; persist(); $('markMastered').textContent = state.mastered.includes(id) ? '已标记掌握 · 取消标记' : '标记为已掌握'; renderHome(); };
-  $('retryWrong').onclick = () => startQuestions(state.results.filter(x => !x.right).map(x => x.q));
+  $('retryWrong').onclick = () => { const previous = state.sessionSize; state.sessionSize = 0; startQuestions(state.results.filter(x => !x.right).map(x => x.q)); state.sessionSize = previous; };
   $('quitQuiz').onclick = () => { if (confirm('本轮进度会保留，返回后可继续。')) { persist(); renderHome(); show('homeView'); } };
   document.querySelectorAll('[data-back]').forEach(b => b.onclick = () => { renderHome(); show(b.dataset.back); });
   $('resetData').onclick = () => { if (confirm('清空所有本地记录？建议先导出进度。')) { localStorage.removeItem(STORE_KEY); localStorage.removeItem(LEGACY_KEY); location.reload(); } };
-  $('exportData').onclick = exportProgress; $('importData').onchange = e => { if (e.target.files[0]) importProgress(e.target.files[0]); e.target.value = ''; };
+  $('exportData').onclick = exportProgress; $('exportReports').onclick = exportReports; $('importData').onchange = e => { if (e.target.files[0]) importProgress(e.target.files[0]); e.target.value = ''; };
   renderHome();
-  $('continuePractice').classList.toggle('hidden', !state.session?.ids?.length);
   $('continuePractice').onclick = () => { if (state.session?.ids?.length) { state.queue = state.session.ids.map(byId).filter(Boolean); state.index = Math.min(state.session.index || 0, state.queue.length - 1); state.results = (state.session.results || []).map(x => ({ q: byId(x.id), right: x.right, chosen: x.chosen || [] })).filter(x => x.q); show('quizView'); renderQuestion({ chosen: state.session.chosen || [], submitted: state.session.submitted, right: state.session.currentRight }); } };
   if (saved.recovered) alert('本地进度文件无法读取，已安全重置为空记录。');
   if (state.session?.ids?.length) {
@@ -198,4 +217,5 @@
     state.results = (state.session.results || []).map(x => ({ q: byId(x.id), right: x.right, chosen: x.chosen || [] })).filter(x => x.q);
     if (state.queue.length) { show('quizView'); renderQuestion({ chosen: state.session.chosen || [], submitted: state.session.submitted, right: state.session.currentRight }); }
   }
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./service-worker.js').catch(() => {});
 })();
