@@ -41,10 +41,15 @@ jobs:
           echo "ANDROID_HOME=$sdk_root" >> "$GITHUB_ENV"
           echo "$sdk_root/platform-tools" >> "$GITHUB_PATH"
           echo "$sdk_root/emulator" >> "$GITHUB_PATH"
-          echo "$sdk_root/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-          echo "$sdk_root/cmdline-tools/bin" >> "$GITHUB_PATH"
+          sdkmanager_path="$(find "$sdk_root/cmdline-tools" -type f -name sdkmanager -print -quit 2>/dev/null || true)"
+          if [ -z "$sdkmanager_path" ]; then
+            echo "sdkmanager was not found under $sdk_root/cmdline-tools" >&2
+            exit 1
+          fi
+          echo "$(dirname "$sdkmanager_path")" >> "$GITHUB_PATH"
+          echo "Using $sdkmanager_path"
           if ! command -v sdkmanager >/dev/null 2>&1; then
-            echo "sdkmanager was not found in the runner image" >&2
+            echo "sdkmanager was not added to PATH" >&2
             exit 1
           fi
           yes | sdkmanager --licenses >/dev/null || true
