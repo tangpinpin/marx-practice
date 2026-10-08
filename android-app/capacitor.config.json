@@ -1,0 +1,8 @@
+{
+  "appId": "com.tangpinpin.marxpractice",
+  "appName": "马原刷题",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  }
+}

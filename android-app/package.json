@@ -1,0 +1,21 @@
+{
+  "name": "marx-practice-android",
+  "version": "1.0.0",
+  "private": true,
+  "description": "马原刷题 Android 应用",
+  "scripts": {
+    "sync:web": "node scripts/copy-web.mjs && cap sync android",
+    "build:apk": "npm run sync:web && cd android && gradlew.bat assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/filesystem": "^8.1.4",
+    "@capacitor/share": "^8.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.3",
+    "esbuild": "^0.25.12",
+    "sharp": "^0.35.5"
+  }
+}
