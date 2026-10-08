@@ -14,6 +14,11 @@ on:
       - 'icon.svg'
       - '.github/workflows/android-apk.yml'
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Publish the APK as a preview release
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -61,3 +66,26 @@ jobs:
           name: marx-practice-debug-apk
           path: android-app/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: marx-practice-debug-apk
+          path: release
+      - name: Publish preview APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mv release/app-debug.apk release/marx-practice-android-preview.apk
+          gh release create "android-preview-${{ github.run_number }}" release/marx-practice-android-preview.apk \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "马原刷题 Android 预览版" \
+            --notes "个人使用的 Android 调试版。安装前可在网页端导出进度；安卓端数据与网页端互不自动同步。此版使用临时调试签名，后续更新可能需要卸载重装，请先导出进度。" \
+            --prerelease
