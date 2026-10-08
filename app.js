@@ -165,9 +165,18 @@
     $('chapterResults').innerHTML = Object.entries(by).map(([id, v]) => `<div class="chapter-result"><span>${chapterName(id)}</span><small>${v.c}/${v.n} · ${Math.round(v.c / v.n * 100)}%</small></div>`).join('');
     state.queue = []; persist(); renderHome();
   }
+  function downloadJson(filename, payload) {
+    const content = JSON.stringify(payload, null, 2);
+    if (window.MarxNativeExport) {
+      window.MarxNativeExport(filename, content).catch(error => alert(`导出失败：${error.message}`));
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([content], { type: 'application/json' }));
+    const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
+  }
   function exportProgress() {
     const payload = { app: 'marx-practice', version: 2, bankVersion: BANK.version, answers: state.answers, events: state.events, wrong: state.wrong, mastered: state.mastered, selected: state.selected, mode: state.mode, sessionSize: state.sessionSize, reports: saved.reports || {} };
-    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })); const a = document.createElement('a'); a.href = url; a.download = 'marx-practice-progress.json'; a.click(); URL.revokeObjectURL(url);
+    downloadJson('marx-practice-progress.json', payload);
   }
   function exportReports() {
     const reports = Object.entries(saved.reports || {}).map(([id, note]) => {
@@ -175,8 +184,7 @@
       return { id, chapter: q ? chapterName(q.chapter) : '', section: q?.section || '', page: q?.page || '', type: q ? typeName(q.type) : '', stem: q?.stem || '', note };
     });
     if (!reports.length) { alert('还没有本地反馈。'); return; }
-    const url = URL.createObjectURL(new Blob([JSON.stringify({ app: 'marx-practice-reports', bankVersion: BANK.version, reports }, null, 2)], { type: 'application/json' }));
-    const a = document.createElement('a'); a.href = url; a.download = 'marx-practice-reports.json'; a.click(); URL.revokeObjectURL(url);
+    downloadJson('marx-practice-reports.json', { app: 'marx-practice-reports', bankVersion: BANK.version, reports });
   }
   function importProgress(file) {
     const reader = new FileReader(); reader.onload = () => {
