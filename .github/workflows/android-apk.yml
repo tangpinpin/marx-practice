@@ -48,12 +48,8 @@ jobs:
           fi
           echo "$(dirname "$sdkmanager_path")" >> "$GITHUB_PATH"
           echo "Using $sdkmanager_path"
-          if ! command -v sdkmanager >/dev/null 2>&1; then
-            echo "sdkmanager was not added to PATH" >&2
-            exit 1
-          fi
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+          yes | "$sdkmanager_path" --licenses >/dev/null || true
+          "$sdkmanager_path" 'platforms;android-36' 'build-tools;36.0.0'
       - run: npm ci
       - run: npm run sync:web
       - run: node scripts/create-icons.mjs
